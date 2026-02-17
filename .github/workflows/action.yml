@@ -194,10 +194,12 @@ jobs:
         id: susfs
         run: |
           cd kernel_workspace/kernel_platform
+          # Create patches marker directory
+          mkdir -p .patches
           # Check if already patched
-          if [ -f ".susfs_applied" ]; then
+          if [ -f ".patches/susfs_applied" ]; then
             echo "SUSFS already applied, skipping patches"
-            susfs_version=$(cat .susfs_version 2>/dev/null || echo "v2.0.0")
+            susfs_version=$(cat .patches/susfs_version 2>/dev/null || echo "v2.0.0")
             echo "susfs_version=$susfs_version" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -210,36 +212,36 @@ jobs:
           cd KernelSU-Next
           susfs_version=$(grep '#define SUSFS_VERSION' ../common/include/linux/susfs.h | awk -F'"' '{print $2}')
           echo "susfs_version=$susfs_version" >> $GITHUB_OUTPUT
-          echo "$susfs_version" > ../.susfs_version
+          echo "$susfs_version" > ../.patches/susfs_version
 
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-          patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
+          patch -p1 --forward --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch || true
 
           case "$susfs_version" in
             "v1.5.8")
               cp $GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_apk_sign.c.patch
+              patch -p1 --forward --fuzz=3 --no-backup-if-mismatch < fix_apk_sign.c.patch
               cp $GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_core_hook.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_core_hook.c.patch
+              patch -p1 --forward --fuzz=3 --no-backup-if-mismatch < fix_core_hook.c.patch
               cp $GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_selinux.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_selinux.c.patch
+              patch -p1 --forward --fuzz=3 --no-backup-if-mismatch < fix_selinux.c.patch
               cp $GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_ksud.c.patch
+              patch -p1 --forward --fuzz=3 --no-backup-if-mismatch < fix_ksud.c.patch
               ;;
             "v1.5.9"|"v1.5.10"|"v1.5.11"|"v1.5.12")
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" | cut -d'.' -f1); do
                 echo "Patching file: $file.c with fix_$file.c.patch"
-                patch -p1 --forward < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch"
+                patch -p1 --forward --no-backup-if-mismatch < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch"
               done
-              patch -p1 --forward < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
+              patch -p1 --forward --no-backup-if-mismatch < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
               ;;
             "v2.0.0")
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
                 echo "Patching file: $file with fix_$file.patch"
-                patch -p1 --forward < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
+                patch -p1 --forward --no-backup-if-mismatch < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
               done
-              patch -p1 --forward < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              patch -p1 --forward < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
+              patch -p1 --forward --no-backup-if-mismatch < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
+              patch -p1 --forward --no-backup-if-mismatch < "$GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
               ;;
             *)
               echo "Unsupported SUSFS version: $susfs_version"
@@ -248,23 +250,24 @@ jobs:
           esac
 
           cd ../common
-          patch -p1 < $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch
+          patch -p1 --no-backup-if-mismatch < $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch
 
           KERNEL_VERSION="${{ env.KERNEL_VER }}"
           MIN_VERSION="5.16"
           if [ "$(printf '%s\n' "$KERNEL_VERSION" "$MIN_VERSION" | sort -V | head -n1)" = "$KERNEL_VERSION" ]; then
             echo "Applying ptrace patch"
-            patch -p1 -F 3 < "$GITHUB_WORKSPACE/kernel_patches/gki_ptrace.patch"
+            patch -p1 -F 3 --no-backup-if-mismatch < "$GITHUB_WORKSPACE/kernel_patches/gki_ptrace.patch"
           fi
 
           # Mark as applied
           cd ..
-          touch .susfs_applied
+          touch .patches/susfs_applied
 
       - name: Apply my patches (idempotent)
         run: |
           cd kernel_workspace/kernel_platform/common
-          if [ -f ".my_patches_applied" ]; then
+          mkdir -p ../.patches
+          if [ -f "../.patches/my_patches_applied" ]; then
             echo "My patches already applied, skipping"
             exit 0
           fi
@@ -272,35 +275,37 @@ jobs:
           for patch_file in $GITHUB_WORKSPACE/my_patches/kernel_patches/op11/common/*.patch; do
             if [ -f "$patch_file" ]; then
               echo "Applying $patch_file"
-              patch -p1 --forward < "$patch_file" || true
+              patch -p1 --forward --no-backup-if-mismatch < "$patch_file" || true
             fi
           done
 
           # Mark as applied
-          touch .my_patches_applied
+          touch ../.patches/my_patches_applied
 
       - name: Add memkernel module
         run: |
           cd kernel_workspace/kernel_platform/common
-          if [ -f ".memkernel_applied" ]; then
+          mkdir -p ../.patches
+          if [ -f "../.patches/memkernel_applied" ]; then
             echo "Memkernel already added, skipping"
             exit 0
           fi
           curl -LSs "https://raw.githubusercontent.com/Poko-Apps/MemKernel/main/kernel/setup.sh" | bash -s M br0k3n
-          touch .memkernel_applied
+          touch ../.patches/memkernel_applied
 
       - name: Add BBG
         continue-on-error: true
         run: |
           cd kernel_workspace/kernel_platform
-          if [ -f ".bbg_applied" ]; then
+          mkdir -p .patches
+          if [ -f ".patches/bbg_applied" ]; then
             echo "BBG already added, skipping"
             exit 0
           fi
           if ! wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash -s fix_blkdev_rename; then
             echo "::warning::BBG setup script failed, continuing anyway"
           fi
-          touch .bbg_applied
+          touch .patches/bbg_applied
 
       - name: Download Clang-aosp
         run: |
