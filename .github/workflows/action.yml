@@ -195,10 +195,9 @@ jobs:
         run: |
           cd kernel_workspace/kernel_platform
           # Check if already patched
-          if [ -f "common/include/linux/susfs.h" ]; then
+          if [ -f ".susfs_applied" ]; then
             echo "SUSFS already applied, skipping patches"
-            # Extract version from existing susfs.h
-            susfs_version=$(grep '#define SUSFS_VERSION' common/include/linux/susfs.h | awk -F'"' '{print $2}')
+            susfs_version=$(cat .susfs_version 2>/dev/null || echo "v2.0.0")
             echo "susfs_version=$susfs_version" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -211,6 +210,7 @@ jobs:
           cd KernelSU-Next
           susfs_version=$(grep '#define SUSFS_VERSION' ../common/include/linux/susfs.h | awk -F'"' '{print $2}')
           echo "susfs_version=$susfs_version" >> $GITHUB_OUTPUT
+          echo "$susfs_version" > ../.susfs_version
 
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
           patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
@@ -257,28 +257,50 @@ jobs:
             patch -p1 -F 3 < "$GITHUB_WORKSPACE/kernel_patches/gki_ptrace.patch"
           fi
 
-      - name: Apply my patches
+          # Mark as applied
+          cd ..
+          touch .susfs_applied
+
+      - name: Apply my patches (idempotent)
         run: |
           cd kernel_workspace/kernel_platform/common
+          if [ -f ".my_patches_applied" ]; then
+            echo "My patches already applied, skipping"
+            exit 0
+          fi
+
           for patch_file in $GITHUB_WORKSPACE/my_patches/kernel_patches/op11/common/*.patch; do
             if [ -f "$patch_file" ]; then
               echo "Applying $patch_file"
-              patch -p1 < "$patch_file"
+              patch -p1 --forward < "$patch_file" || true
             fi
           done
+
+          # Mark as applied
+          touch .my_patches_applied
 
       - name: Add memkernel module
         run: |
           cd kernel_workspace/kernel_platform/common
+          if [ -f ".memkernel_applied" ]; then
+            echo "Memkernel already added, skipping"
+            exit 0
+          fi
           curl -LSs "https://raw.githubusercontent.com/Poko-Apps/MemKernel/main/kernel/setup.sh" | bash -s M br0k3n
+          touch .memkernel_applied
 
       - name: Add BBG
         continue-on-error: true
         run: |
           cd kernel_workspace/kernel_platform
+          if [ -f ".bbg_applied" ]; then
+            echo "BBG already added, skipping"
+            exit 0
+          fi
           if ! wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash -s fix_blkdev_rename; then
             echo "::warning::BBG setup script failed, continuing anyway"
           fi
+          touch .bbg_applied
 
       - name: Download Clang-aosp
         run: |
@@ -287,7 +309,7 @@ jobs:
           wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
           tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
 
-      - name: Setup ccache
+      - name: Setup ccache (only for kernel build)
         uses: hendrikmuhs/ccache-action@v1.2.19
         with:
           key: ${{ env.KERNEL_FULL_VER }}
@@ -336,7 +358,7 @@ jobs:
 
           make -j"$THREAD" O=${OUT_DIR} "${TOOL_ARGS[@]}" KCFLAGS="-Wno-error -pipe -fno-stack-protector ${KCFLAGS_EXTRA}" KCPPFLAGS="-DCONFIG_OPTIMIZE_INLINING" Image
 
-      - name: Save kernel artifacts (config + symvers)
+      - name: Save kernel artifacts
         run: |
           mkdir -p artifacts
           cp kernel_workspace/out/.config artifacts/kernel_config_${{ env.KERNEL_FULL_VER }}.txt
@@ -447,14 +469,7 @@ jobs:
           wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
           tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
 
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.19
-        with:
-          key: modules-${{ needs.build-kernel.outputs.kernel_full_ver }}
-          max-size: 2G
-          save: true
-
-      - name: Build modules
+      - name: Build modules (no ccache)
         run: |
           cd kernel_workspace
           KERNEL_DIR=./kernel_platform/common
@@ -497,13 +512,6 @@ jobs:
           else
             echo "No kernel modules found."
           fi
-
-      - name: Debug ccache stats
-        run: |
-          echo "CCache Statistics (modules):"
-          ccache -s
-          echo "Cache key used: modules-${{ needs.build-kernel.outputs.kernel_full_ver }}"
-          echo "Cache hit rate: $(ccache -s | grep 'cache hit rate' | awk '{print $4}')"
 
       - name: Upload modules artifacts
         uses: actions/upload-artifact@v4
