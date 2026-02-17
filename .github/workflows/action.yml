@@ -259,7 +259,7 @@ jobs:
             fi
           done
 
-      # ---------- Add memkernel module (from previous YAML) ----------
+      # ---------- Add memkernel module ----------
       - name: Add memkernel module
         run: |
           cd kernel_workspace/kernel_platform/common
@@ -290,7 +290,7 @@ jobs:
           append-timestamp: false
           create-symlink: true
           job-summary: 'CCache stats'
-          save-always: true
+          save: true
 
       - name: Build kernel
         run: |
@@ -411,7 +411,7 @@ jobs:
         with:
           key: modules-${{ needs.build-kernel.outputs.kernel_full_ver }}
           max-size: 2G
-          save-always: true
+          save: true
 
       - name: Build modules
         run: |
