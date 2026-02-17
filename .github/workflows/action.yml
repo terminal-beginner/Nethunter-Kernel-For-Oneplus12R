@@ -323,9 +323,7 @@ jobs:
       - name: Download Clang-aosp
         run: |
           cd kernel_workspace
-          # Create directory if not exists (idempotent)
           mkdir -p clang-aosp
-          # Only download if tarball doesn't exist or force download
           if [ ! -f clang-aosp/bin/clang ]; then
             wget -N https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
             tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
@@ -365,7 +363,7 @@ jobs:
 
           make -j"$THREAD" "${TOOL_ARGS[@]}" O=${OUT_DIR} ${DEFCONFIG}
           scripts/config --file ${OUT_DIR}/.config -e LTO_CLANG -d LTO_NONE -e LTO_CLANG_THIN -d LTO_CLANG_FULL -e THINLTO
-          wget -N https://raw.githubusercontent.com/terminal-beginner/Nethunter-Kernel-For-Oneplus12R/refs/heads/main/patches/a16_defconfig
+          wget -N https://raw.githubusercontent.com/terminal-beginner/Kernel-Builder_Action/refs/heads/Original/patches/a16_defconfig
           mv a16_defconfig ${OUT_DIR}/.config
 
           if [ "${{ github.event.inputs.optimize_level }}" = "O3" ]; then
@@ -383,17 +381,23 @@ jobs:
 
           make -j"$THREAD" O=${OUT_DIR} "${TOOL_ARGS[@]}" KCFLAGS="-Wno-error -pipe -fno-stack-protector ${KCFLAGS_EXTRA}" KCPPFLAGS="-DCONFIG_OPTIMIZE_INLINING" Image
 
+          # Generate Module.symvers for external module builds
+          make -j"$THREAD" O=${OUT_DIR} modules_prepare
+
       - name: Save kernel artifacts
         run: |
           mkdir -p artifacts
           cp kernel_workspace/out/.config artifacts/kernel_config_${{ env.KERNEL_FULL_VER }}.txt
-          cp kernel_workspace/out/Module.symvers artifacts/Module.symvers_${{ env.KERNEL_FULL_VER }}.txt
+          if [ -f kernel_workspace/out/Module.symvers ]; then
+            cp kernel_workspace/out/Module.symvers artifacts/Module.symvers_${{ env.KERNEL_FULL_VER }}.txt
+          else
+            echo "Warning: Module.symvers not found, skipping"
+          fi
           echo "${{ env.KERNEL_FULL_VER }}" > artifacts/OnePlus12r.txt
 
       - name: Make Anykernel3
         run: |
           cd kernel_workspace
-          # Clone only if not already present (idempotent)
           if [ ! -d "AnyKernel3" ]; then
             git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1 AnyKernel3
           else
@@ -487,7 +491,11 @@ jobs:
         run: |
           cd kernel_workspace/kernel_platform/common
           cp $GITHUB_WORKSPACE/downloaded-artifacts/kernel_config_${{ needs.build-kernel.outputs.kernel_full_ver }}.txt .config
-          cp $GITHUB_WORKSPACE/downloaded-artifacts/Module.symvers_${{ needs.build-kernel.outputs.kernel_full_ver }}.txt Module.symvers
+          if [ -f "$GITHUB_WORKSPACE/downloaded-artifacts/Module.symvers_${{ needs.build-kernel.outputs.kernel_full_ver }}.txt" ]; then
+            cp $GITHUB_WORKSPACE/downloaded-artifacts/Module.symvers_${{ needs.build-kernel.outputs.kernel_full_ver }}.txt Module.symvers
+          else
+            echo "Warning: Module.symvers not found, generating new one"
+          fi
           mkdir -p out
           make O=out olddefconfig
           make O=out modules_prepare
