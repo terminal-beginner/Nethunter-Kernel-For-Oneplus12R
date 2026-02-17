@@ -323,9 +323,16 @@ jobs:
       - name: Download Clang-aosp
         run: |
           cd kernel_workspace
-          mkdir clang-aosp
-          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
-          tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
+          # Create directory if not exists (idempotent)
+          mkdir -p clang-aosp
+          # Only download if tarball doesn't exist or force download
+          if [ ! -f clang-aosp/bin/clang ]; then
+            wget -N https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
+            tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
+            rm -f clang-r450784e.tar.gz
+          else
+            echo "Clang already present, skipping download"
+          fi
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.19
@@ -358,7 +365,7 @@ jobs:
 
           make -j"$THREAD" "${TOOL_ARGS[@]}" O=${OUT_DIR} ${DEFCONFIG}
           scripts/config --file ${OUT_DIR}/.config -e LTO_CLANG -d LTO_NONE -e LTO_CLANG_THIN -d LTO_CLANG_FULL -e THINLTO
-          wget https://raw.githubusercontent.com/terminal-beginner/Kernel-Builder_Action/refs/heads/Original/patches/a16_defconfig
+          wget -N https://raw.githubusercontent.com/terminal-beginner/Kernel-Builder_Action/refs/heads/Original/patches/a16_defconfig
           mv a16_defconfig ${OUT_DIR}/.config
 
           if [ "${{ github.event.inputs.optimize_level }}" = "O3" ]; then
@@ -386,7 +393,12 @@ jobs:
       - name: Make Anykernel3
         run: |
           cd kernel_workspace
-          git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1 AnyKernel3
+          # Clone only if not already present (idempotent)
+          if [ ! -d "AnyKernel3" ]; then
+            git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1 AnyKernel3
+          else
+            echo "AnyKernel3 already exists, skipping clone"
+          fi
           cp out/arch/arm64/boot/Image AnyKernel3/
           cd AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
@@ -483,9 +495,14 @@ jobs:
       - name: Download Clang-aosp
         run: |
           cd kernel_workspace
-          mkdir clang-aosp
-          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
-          tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
+          mkdir -p clang-aosp
+          if [ ! -f clang-aosp/bin/clang ]; then
+            wget -N https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
+            tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
+            rm -f clang-r450784e.tar.gz
+          else
+            echo "Clang already present, skipping download"
+          fi
 
       - name: Build modules (no ccache)
         run: |
