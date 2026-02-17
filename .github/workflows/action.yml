@@ -23,7 +23,6 @@ on:
         type: choice
         options: ['no', 'yes']
         default: 'no'
-      # Release inputs
       release_type:
         description: 'Select type of Github release?'
         required: true
@@ -48,7 +47,6 @@ on:
         type: string
         default: 'OP12r'
 
-# Job outputs for inter‑job communication
 jobs:
   build-kernel:
     name: Build Kernel
@@ -71,33 +69,29 @@ jobs:
       - name: Setup build kernel environment
         run: |
           echo "BUILD_TIME=$(TZ=Asia/Shanghai date "+%y%m%d")" >> $GITHUB_ENV
+          echo "CACHE_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
           sudo apt-get update
           sudo apt-get install -y git wget dwarves libelf-dev ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python3 jq
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-      # ---------- Input Validation (Suggestion 8) ----------
+      # ---------- Input Validation ----------
       - name: Validate inputs
         run: |
           if [[ -n "${{ github.event.inputs.ksu_commit_hash }}" ]]; then
-            # Simple length check; could add more
             if [[ ! "${{ github.event.inputs.ksu_commit_hash }}" =~ ^[a-f0-9]{40}$ ]]; then
               echo "::error::ksu_commit_hash must be a 40-character hex string"
               exit 1
             fi
           fi
-          if [[ -n "${{ github.event.inputs.susfs_branch_or_commit }}" ]]; then
-            # Accept branch names or commit hashes; just ensure not empty
-            :
-          fi
           echo "Input validation passed."
 
-      # ---------- Caching: Git repo (Suggestion 5) ----------
+      # ---------- Caching: Git repo (daily refresh) ----------
       - name: Cache kernel source
         id: cache-kernel
         uses: actions/cache@v4
         with:
           path: kernel_workspace
-          key: kernel-source-${{ inputs.manifest }}-${{ github.run_id }}
+          key: kernel-source-${{ inputs.manifest }}-${{ env.CACHE_DATE }}
           restore-keys: |
             kernel-source-${{ inputs.manifest }}-
             kernel-source-
@@ -265,9 +259,15 @@ jobs:
             fi
           done
 
+      # ---------- Add memkernel module (from previous YAML) ----------
+      - name: Add memkernel module
+        run: |
+          cd kernel_workspace/kernel_platform/common
+          curl -LSs "https://raw.githubusercontent.com/Poko-Apps/MemKernel/main/kernel/setup.sh" | bash -s M br0k3n
+
       # ---------- Add BBG ----------
       - name: Add BBG
-        continue-on-error: true   # Suggestion 4: don't stop build if BBG fails
+        continue-on-error: true
         run: |
           cd kernel_workspace/kernel_platform
           if ! wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash -s fix_blkdev_rename; then
@@ -281,7 +281,7 @@ jobs:
           wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz
           tar -C clang-aosp/ -zxvf clang-r450784e.tar.gz
 
-      # ---------- Setup ccache (with save-always: true) ----------
+      # ---------- Setup ccache ----------
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.19
         with:
@@ -290,7 +290,7 @@ jobs:
           append-timestamp: false
           create-symlink: true
           job-summary: 'CCache stats'
-          save-always: true   # Suggestion 5
+          save-always: true
 
       - name: Build kernel
         run: |
@@ -321,7 +321,7 @@ jobs:
 
           make -j"$THREAD" O=${OUT_DIR} "${TOOL_ARGS[@]}" KCFLAGS="-Wno-error -pipe -fno-stack-protector ${KCFLAGS_EXTRA}" KCPPFLAGS="-DCONFIG_OPTIMIZE_INLINING" Image
 
-      # ---------- Save kernel metadata and config (Suggestion 9) ----------
+      # ---------- Save kernel metadata and config ----------
       - name: Save kernel metadata and config
         run: |
           mkdir -p artifacts
@@ -342,7 +342,7 @@ jobs:
           mkdir -p ../artifacts
           cp update.zip ../artifacts/AnyKernel3_OnePlus12r_${{ env.KERNEL_FULL_VER }}_Next_${{ steps.ksu.outputs.ksu_version }}_SuSFS_${{ steps.susfs.outputs.susfs_version }}.zip
 
-      # ---------- Upload kernel artifacts (Suggestion 3) ----------
+      # ---------- Upload kernel artifacts ----------
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -357,10 +357,9 @@ jobs:
         with:
           name: kernel-out-${{ env.KERNEL_FULL_VER }}
           path: kernel_workspace/out
-          retention-days: 1   # short retention, only needed for next job
+          retention-days: 1
           if-no-files-found: error
 
-  # ---------- Modules build job (Suggestion 2) ----------
   build-modules:
     name: Build Kernel Modules
     needs: build-kernel
@@ -370,6 +369,7 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
+      CACHE_DATE: ${{ needs.build-kernel.outputs.build_time }}
     steps:
       - name: Download out directory from kernel job
         uses: actions/download-artifact@v4
@@ -382,7 +382,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git wget dwarves libelf-dev ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python3 jq
 
-      - name: Clone kernel source (fast, depth=1)
+      - name: Cache kernel source
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: kernel_workspace
+          key: kernel-source-${{ inputs.manifest }}-${{ env.CACHE_DATE }}
+          restore-keys: |
+            kernel-source-${{ inputs.manifest }}-
+            kernel-source-
+
+      - name: Download kernel source (if not cached)
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8550 -b oneplus/sm8550_b_16.0.0_oneplus_12r kernel_workspace --depth=1
           cd kernel_workspace/kernel_platform
@@ -406,7 +417,7 @@ jobs:
         run: |
           cd kernel_workspace
           KERNEL_DIR=./kernel_platform/common
-          OUT_DIR=../../out   # this is the downloaded out directory
+          OUT_DIR=../../out
           export PATH=$PWD/clang-aosp/bin:$PATH
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export ARCH=arm64 SUBARCH=arm64 HEADER_ARCH=arm64
@@ -420,11 +431,9 @@ jobs:
           cd ${KERNEL_DIR}
           THREAD=$(nproc --all)
 
-          # Use the existing .config
           make -j"$THREAD" O=${OUT_DIR} olddefconfig
           make -j"$THREAD" O=${OUT_DIR} "${TOOL_ARGS[@]}" modules
 
-      # ---------- Collect and filter modules ----------
       - name: Collect and filter kernel modules
         run: |
           cd kernel_workspace/out
@@ -457,7 +466,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ---------- Release job (unchanged from example, integrated) ----------
   trigger-release:
     needs: [build-kernel, build-modules]
     runs-on: ubuntu-latest
@@ -512,7 +520,6 @@ jobs:
           git tag $NEW_TAG
           git push origin $NEW_TAG
 
-      # ---------- Generate changelog (Suggestion 7) ----------
       - name: Generate Changelog
         id: changelog
         run: |
@@ -575,7 +582,6 @@ jobs:
           ### Asset Checksums
           EOF
 
-          # Add SHA256 of each asset
           for file in downloaded-artifacts/*/*.{zip,img}; do
             if [ -f "$file" ]; then
               sha=$(sha256sum "$file" | cut -d' ' -f1)
