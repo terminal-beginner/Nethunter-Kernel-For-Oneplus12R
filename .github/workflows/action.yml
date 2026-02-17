@@ -190,10 +190,20 @@ jobs:
           cd $GITHUB_WORKSPACE
           git clone --depth=1 https://github.com/terminal-beginner/kernel_patches.git my_patches
 
-      - name: Apply SUSFS patches
+      - name: Apply SUSFS patches (idempotent)
         id: susfs
         run: |
           cd kernel_workspace/kernel_platform
+          # Check if already patched
+          if [ -f "common/include/linux/susfs.h" ]; then
+            echo "SUSFS already applied, skipping patches"
+            # Extract version from existing susfs.h
+            susfs_version=$(grep '#define SUSFS_VERSION' common/include/linux/susfs.h | awk -F'"' '{print $2}')
+            echo "susfs_version=$susfs_version" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Copy SUSFS files
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch ./common/
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
@@ -311,7 +321,6 @@ jobs:
           wget https://raw.githubusercontent.com/terminal-beginner/Kernel-Builder_Action/refs/heads/Original/patches/a16_defconfig
           mv a16_defconfig ${OUT_DIR}/.config
 
-          # Set optimization level based on input
           if [ "${{ github.event.inputs.optimize_level }}" = "O3" ]; then
             scripts/config --file ${OUT_DIR}/.config -d CC_OPTIMIZE_FOR_PERFORMANCE
             scripts/config --file ${OUT_DIR}/.config -e CC_OPTIMIZE_FOR_PERFORMANCE_O3
@@ -425,11 +434,9 @@ jobs:
       - name: Prepare kernel build tree
         run: |
           cd kernel_workspace/kernel_platform/common
-          # Copy config and symvers
           cp $GITHUB_WORKSPACE/downloaded-artifacts/kernel_config_${{ needs.build-kernel.outputs.kernel_full_ver }}.txt .config
           cp $GITHUB_WORKSPACE/downloaded-artifacts/Module.symvers_${{ needs.build-kernel.outputs.kernel_full_ver }}.txt Module.symvers
           mkdir -p out
-          # Prepare module build environment
           make O=out olddefconfig
           make O=out modules_prepare
 
@@ -465,7 +472,6 @@ jobs:
           cd ${KERNEL_DIR}
           THREAD=$(nproc --all)
 
-          # Build modules using prepared tree
           make -j"$THREAD" O=${OUT_DIR} "${TOOL_ARGS[@]}" modules
 
       - name: Collect and filter kernel modules
