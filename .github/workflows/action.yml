@@ -106,6 +106,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Kernel
@@ -170,7 +173,7 @@ jobs:
           echo "SUSFS_KERNEL_BRANCH=gki-$ANDROID_VERSION-$VERSION.$PATCHLEVEL" >> $GITHUB_ENV
           echo "kernel_full_ver=$ANDROID_VERSION-$FULL_VERSION" >> $GITHUB_OUTPUT
 
-      # ---------- Clone common patch repos (used by both implementations) ----------
+      # ---------- Clone common patch repos ----------
       - name: Clone common patch repositories
         run: |
           cd $GITHUB_WORKSPACE
@@ -238,10 +241,6 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/${MANAGER_BRANCH}/kernel/setup.sh" | bash -s "main"
           cd KernelSU
 
-          # Optional commit override via KSU_META (we'll reuse the input? Not directly; we can add an input for sukisu hash later)
-          # For now, no override
-
-          # Get API version from Kbuild
           KSU_API_VERSION=$(curl -fsSL "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/$MANAGER_BRANCH/kernel/Kbuild" | grep -m1 "KSU_VERSION_API :=" | awk -F'= ' '{print $2}' | tr -d '[:space:]')
           if [[ -z "$KSU_API_VERSION" || "$(printf '%s\n' "$KSU_API_VERSION" "3.1.7" | sort -V | head -n1)" != "3.1.7" ]]; then
             KSU_API_VERSION="3.1.7"
@@ -249,7 +248,6 @@ jobs:
           GIT_HASH=$(git rev-parse --short HEAD)
           VERSION_FULL="v$KSU_API_VERSION-$GIT_HASH@$MANAGER_BRANCH"
 
-          # Inject version into Kbuild
           sed -i '/define get_ksu_version_full/,/endef/d' kernel/Kbuild
           sed -i '/KSU_VERSION_API :=/d' kernel/Kbuild
           sed -i '/KSU_VERSION_FULL :=/d' kernel/Kbuild
@@ -291,7 +289,6 @@ jobs:
           fi
           cd $GITHUB_WORKSPACE/kernel_workspace/kernel_platform
 
-          # Copy SUSFS files
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch ./common/
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
@@ -302,11 +299,9 @@ jobs:
           echo "susfs_version=$susfs_version" >> $GITHUB_OUTPUT
           echo "SUSVER=$susfs_version" >> $GITHUB_ENV
 
-          # Apply the enable patch (present in both KernelSU and KernelSU-Next)
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
           patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
 
-          # Version-specific fixes (from TheWildJames kernel_patches)
           case "$susfs_version" in
             "v1.5.8")
               cp $GITHUB_WORKSPACE/kernel_patches/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch ./
@@ -342,7 +337,6 @@ jobs:
           cd ../common
           patch -p1 < $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch
 
-          # Ptrace patch for kernels < 5.16
           KERNEL_VERSION="${{ env.KERNEL_VER }}"
           MIN_VERSION="5.16"
           if [ "$(printf '%s\n' "$KERNEL_VERSION" "$MIN_VERSION" | sort -V | head -n1)" = "$KERNEL_VERSION" ]; then
@@ -350,7 +344,7 @@ jobs:
             patch -p1 -F 3 < "$GITHUB_WORKSPACE/kernel_patches/gki_ptrace.patch"
           fi
 
-      # ---------- Apply my patches (nullptr-t-oss) ----------
+      # ---------- Apply my patches ----------
       - name: Apply my patches
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/kernel_platform/common
@@ -613,6 +607,8 @@ jobs:
           fi
           NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
           echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag $NEW_TAG
           git push origin $NEW_TAG
 
@@ -641,7 +637,7 @@ jobs:
           **SUSFS Version:** ${{ needs.build.outputs.susfs_version }}
 
           ## Features
-          - KernelSU Next / SukiSU Ultra
+          - ${{ github.event.inputs.ksu_type }}
           - SUSFS
           - Memkernel driver
           - BBG (Baseband Guard)
