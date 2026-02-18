@@ -142,16 +142,27 @@ This beast of a kernel would not exist without the hard work of these legendary 
 
 Who What They Did
 🧙‍♂️ @terminal-beginner Workflow architecture, kernel patches, original build system
+
 ⚔️ @nullptr-t-oss Kernel patches, my_patches repository, default module list
+
 🔧 @TheWildJames kernel_patches repository, SUSFS fix patches, ptrace patch
+
 🛡️ @simonpunk SUSFS – the ultimate hiding engine
+
 📡 @vc-teahouse BBG (Baseband Guard) – baseband partition protection
+
 🧠 @Poko-Apps MemKernel driver – direct physical memory access
+
 📶 @sidex15 ksu_module_susfs – SUSFS module for KernelSU
+
 🔥 SukiSU-Ultra Team SukiSU Ultra implementation
+
 ⚡ KernelSU-Next Team KernelSU Next implementation
+
 🖥️ @Kernel-SU AnyKernel3 template
+
 🌐 @lwfinger rtw88 driver
+
 🤝 OnePlusOSS Kernel source
 
 ---
