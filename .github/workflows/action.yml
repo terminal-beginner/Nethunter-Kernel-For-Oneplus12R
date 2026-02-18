@@ -1,4 +1,4 @@
-name: Build OnePlus 12r Docker Kernel (with KernelSU Next/SukiSU Ultra, SUSFS, BBG)
+name: Build OnePlus 12r Docker Kernel (with KernelSU Next/SukiSU Ultra, SUSFS, BBG, Nethunter Firmware)
 on:
   workflow_dispatch:
     inputs:
@@ -499,6 +499,35 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/artifacts
           cp update.zip $GITHUB_WORKSPACE/artifacts/AnyKernel3_OnePlus12r_${{ env.KERNEL_FULL_VER }}_Next_${KSU_VER}_SuSFS_${SUS_VER}.zip
 
+      # ---------- Download Nethunter Wireless Firmware (always included) ----------
+      - name: Download Nethunter Wireless Firmware
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SOURCE_REPO="nullptr-t-oss/Nethunter-Wireless-Firmware"
+          DOWNLOAD_DIR="$GITHUB_WORKSPACE/artifacts"
+          mkdir -p "$DOWNLOAD_DIR"
+          
+          echo "Downloading latest release from $SOURCE_REPO..."
+          LATEST_RELEASE_TAG=$(gh api repos/$SOURCE_REPO/releases/latest --jq '.tag_name' 2>/dev/null || echo "")
+          
+          if [ -z "$LATEST_RELEASE_TAG" ]; then
+            echo "::warning::Could not find a latest release in $SOURCE_REPO. Skipping firmware download."
+            exit 0
+          fi
+          
+          SOURCE_REPO_NAME=$(basename $SOURCE_REPO)
+          EXPECTED_ASSET_NAME="${SOURCE_REPO_NAME}-${LATEST_RELEASE_TAG}.zip"
+          
+          gh release download $LATEST_RELEASE_TAG \
+            --repo $SOURCE_REPO \
+            --pattern $EXPECTED_ASSET_NAME \
+            --dir $DOWNLOAD_DIR \
+            --clobber
+          
+          echo "✅ Nethunter wireless firmware downloaded: $EXPECTED_ASSET_NAME"
+
       # ---------- Download SukiSU manager APK (if applicable) ----------
       - name: Download SukiSU manager APK
         if: ${{ github.event.inputs.ksu_type == 'SukiSU Ultra' }}
@@ -566,6 +595,14 @@ jobs:
           path: artifacts/kernel_modules_*.zip
           retention-days: 7
           if-no-files-found: error
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ env.KERNEL_FULL_VER }}
+          path: artifacts/Nethunter-Wireless-Firmware-*.zip
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Upload config artifact
         uses: actions/upload-artifact@v4
@@ -641,6 +678,7 @@ jobs:
           - SUSFS
           - Memkernel driver
           - BBG (Baseband Guard)
+          - Nethunter Wireless Firmware included
           - Optimized with ${{ github.event.inputs.optimize_level }}
 
           EOF
