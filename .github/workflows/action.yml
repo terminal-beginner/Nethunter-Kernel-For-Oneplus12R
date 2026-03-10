@@ -140,7 +140,7 @@ jobs:
           git clone https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8550 -b oneplus/sm8550_b_16.0.0_oneplus_12r kernel_workspace --depth=1
           cd $GITHUB_WORKSPACE/kernel_workspace
           cd kernel_platform
-          git clone https://github.com/terminal-beginner/android_kernel_common_oneplus_12r.git -b oneplus/sm8550_b_16.0.0_oneplus_12r common --depth=1
+          git clone https://github.com/terminal-beginner/android_kernel_common_oneplus_sm8550.git -b nethunter common --depth=1
 
       # ---------- Clean up ABI protected exports ----------
       - name: Clean up ABI protected exports
